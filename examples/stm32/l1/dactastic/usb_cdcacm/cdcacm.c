@@ -24,6 +24,8 @@
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/cdc.h>
 
+#include "rclog.h"
+
 static const struct usb_device_descriptor dev = {
 	.bLength = USB_DT_DEVICE_SIZE,
 	.bDescriptorType = USB_DT_DEVICE,
@@ -247,6 +249,8 @@ const clock_scale_t this_clock_config =
                 .apb2_frequency = 32000000,
         };
 
+volatile int j = 0;
+struct rclog_obj_t klog;
 
 int main(void)
 {
@@ -268,9 +272,12 @@ int main(void)
 	usbd_register_set_config_callback(usbd_dev, cdcacm_set_config);
         gpio_clear(GPIOB, GPIO1);
 
+        rclog_init(&klog);
 	while (1) {
 		usbd_poll(usbd_dev);
                 if (i++ > 0x20000) {
+                    rclog_log("blink: %d", j, 0);
+                    j++;
     	            gpio_toggle(GPIOB, GPIO1);
                     i = 0;
                 }
