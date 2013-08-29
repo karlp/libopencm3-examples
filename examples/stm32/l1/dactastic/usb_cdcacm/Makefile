@@ -21,6 +21,7 @@ BINARY = cdcacm
 OBJS += rclog.o
 
 LDSCRIPT = ../../../../../libopencm3/lib/stm32/l1/stm32l15xx6.ld
+LDFLAGS+=--specs=nano.specs
 
 include ../../Makefile.include
 
