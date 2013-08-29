@@ -1,0 +1,5 @@
+--ignore-file=match:/.*\.list$/
+--ignore-file=match:/.*\.srec$/
+--ignore-file=match:/.*\.hex$/
+--ignore-file=match:/.*\.d$/
+--ignore-file=match:/.*\.map$/
