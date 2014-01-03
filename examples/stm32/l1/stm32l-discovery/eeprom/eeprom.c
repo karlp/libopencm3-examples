@@ -43,6 +43,9 @@
 #define PIN_DAC				GPIO5
 #define DAC_CHANNEL			CHANNEL_2
 
+/* For semihosting on newlib */
+extern void  initialise_monitor_handles(void);
+
 /*
  * Packed is optional, but aligned (4) is required!
  * (We only write out whole words to avoid dealing with the byte/hword write 
@@ -65,6 +68,7 @@ struct example_eeprom_blob {
  * so we have a ram copy that we modify then write back to eeprom as a blob
  */
 // Couldn't get eeprom sections to do anything worth a damn :(
+// FIXME - actually, You did, just later on.
 struct example_eeprom_blob *blob_eeprom = 0x08080040;
 struct example_eeprom_blob blob_ram;
 
@@ -101,6 +105,10 @@ static void usart_setup(void)
 	usart_enable(USART_CONSOLE);
 }
 
+
+#if ENABLE_SEMIHOSTING
+/* no _write() stub in semihosting world, it's provided */
+#else
 /**
  * Use USART_CONSOLE as a console.
  * @param file
@@ -124,6 +132,7 @@ int _write(int file, char *ptr, int len)
 	errno = EIO;
 	return -1;
 }
+#endif
 
 static void adc_setup(void)
 {
@@ -182,7 +191,11 @@ int main(void)
 	volatile int loopticks = 0;
 	volatile bool gdbhacking = false;
 	clock_setup();
+#if ENABLE_SEMIHOSTING
+        initialise_monitor_handles();
+#else
 	usart_setup();
+#endif
 	printf("hello! sizeof eepromblob = %d, address=%#lx\n", 
 		sizeof(struct example_eeprom_blob), (uint32_t)blob_eeprom);
 	memcpy(&blob_ram, blob_eeprom, sizeof(struct example_eeprom_blob));
@@ -212,6 +225,7 @@ int main(void)
 			printf("trying to save %u as new target\n", source);
 			eeprom_program_word(eeprom_addr, source);
 		}
+                /* break with gdb, and reset this value for manual testing */
 		if (gdbhacking) {
 			gdbhacking = false;
 			eeprom_program_words((uint32_t)blob_eeprom,
