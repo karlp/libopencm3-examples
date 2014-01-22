@@ -277,7 +277,7 @@ void usb_cdcacm_init(usbd_device **usbd_dev)
 {
 	usb_cdcacm_setup_pre_arch();
 
-	*usbd_dev = usbd_init(&otgfs_usb_driver, &dev, &config, usb_strings, 4,
+	*usbd_dev = usbd_init(&stm32f103_usb_driver, &dev, &config, usb_strings, 4,
 		usbd_control_buffer, sizeof (usbd_control_buffer));
 	acm_dev = *usbd_dev;
 	usbd_register_set_config_callback(acm_dev, cdcacm_set_config);

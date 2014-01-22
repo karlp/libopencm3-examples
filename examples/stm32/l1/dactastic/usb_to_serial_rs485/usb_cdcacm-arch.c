@@ -29,7 +29,7 @@
 void usb_cdcacm_setup_pre_arch(void)
 {
 	rcc_periph_clock_enable(RCC_GPIOA);
-	rcc_periph_clock_enable(RCC_OTGFS);
+	rcc_periph_clock_enable(RCC_USB);
 	rcc_periph_clock_enable(RCC_DMA1);
 
 	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE,
@@ -41,38 +41,42 @@ void usb_cdcacm_setup_pre_arch(void)
 void usb_cdcacm_setup_post_arch(void)
 {
 	/* Better enable interrupts */
-	nvic_enable_irq(NVIC_OTG_FS_IRQ);
-	nvic_enable_irq(NVIC_DMA1_STREAM6_IRQ);
+//	nvic_enable_irq(NVIC_USB_LP_IRQ);
+	nvic_enable_irq(NVIC_CONF_DMA_USART);
 }
 
 static void dma_write(uint8_t *data, int size)
-{
-	/* Reset DMA channel*/
-	dma_stream_reset(DMA1, STREAM_USART2_TX);
+{	
+        /* Reset DMA channel*/
+        dma_channel_reset(DMA1, DMA_CHANNEL_USART_WRITE);
 
-	dma_set_peripheral_address(DMA1,
-		STREAM_USART2_TX, (uint32_t) &USART2_DR);
-	dma_set_memory_address(DMA1, STREAM_USART2_TX, (uint32_t) data);
-	dma_set_number_of_data(DMA1, STREAM_USART2_TX, size);
-	dma_set_transfer_mode(DMA1,
-		STREAM_USART2_TX, DMA_SxCR_DIR_MEM_TO_PERIPHERAL);
-	dma_enable_memory_increment_mode(DMA1, STREAM_USART2_TX);
-	dma_set_peripheral_size(DMA1, STREAM_USART2_TX, DMA_SxCR_PSIZE_8BIT);
-	dma_set_memory_size(DMA1, STREAM_USART2_TX, DMA_SxCR_MSIZE_8BIT);
-	dma_set_priority(DMA1, STREAM_USART2_TX, DMA_SxCR_PL_HIGH);
-	dma_enable_transfer_complete_interrupt(DMA1, STREAM_USART2_TX);
-	dma_channel_select(DMA1, STREAM_USART2_TX, DMA_SxCR_CHSEL_4);
-	dma_enable_stream(DMA1, STREAM_USART2_TX);
+        dma_set_peripheral_address(DMA1, DMA_CHANNEL_USART_WRITE, (uint32_t)&USART_DR(USART_MODBUS));
+        dma_set_memory_address(DMA1, DMA_CHANNEL_USART_WRITE, (uint32_t)data);
+        dma_set_number_of_data(DMA1, DMA_CHANNEL_USART_WRITE, size);
+        dma_set_read_from_memory(DMA1, DMA_CHANNEL_USART_WRITE);
+        dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL_USART_WRITE);
+        dma_set_peripheral_size(DMA1, DMA_CHANNEL_USART_WRITE, DMA_CCR_PSIZE_8BIT);
+        dma_set_memory_size(DMA1, DMA_CHANNEL_USART_WRITE, DMA_CCR_MSIZE_8BIT);
+        dma_set_priority(DMA1, DMA_CHANNEL_USART_WRITE, DMA_CCR_PL_VERY_HIGH);
 
-	usart_enable_tx_dma(USART2);
+        dma_enable_transfer_complete_interrupt(DMA1, DMA_CHANNEL_USART_WRITE);
+
+        dma_enable_channel(DMA1, DMA_CHANNEL_USART_WRITE);
+
+        usart_enable_tx_dma(USART_MODBUS);
+	
 }
 
-void dma1_stream6_isr(void)
+void DMA_CHANNEL_USART_WRITE_IRQ_HANDLER(void)
 {
-	if (dma_get_interrupt_flag(DMA1, DMA_STREAM6, DMA_TCIF)) {
-		USART_CR1(USART2) |= USART_CR1_TCIE;
-		dma_clear_interrupt_flags(DMA1, DMA_STREAM6, DMA_TCIF);
-	}
+	if (dma_get_interrupt_flag(DMA1, DMA_CHANNEL_USART_WRITE, DMA_TCIF)) {
+		// Enable transmit complete interrupt
+		USART_CR1(USART_MODBUS) |= USART_CR1_TCIE;
+		dma_clear_interrupt_flags(DMA1, DMA_CHANNEL_USART_WRITE, DMA_TCIF);
+		dma_disable_transfer_complete_interrupt(DMA1, DMA_CHANNEL_USART_WRITE);
+	        usart_disable_tx_dma(USART_MODBUS);
+		dma_disable_channel(DMA1, DMA_CHANNEL_USART_WRITE);
+        }
 }
 
 void glue_send_data_cb(uint8_t *buf, uint16_t len)
@@ -129,14 +133,14 @@ int glue_set_line_coding_cb(uint32_t baud, uint8_t databits,
 	}
 
 	/* Disable the UART while we mess with its settings */
-	usart_disable(USART2);
+	usart_disable(USART_MODBUS);
 	/* Set communication parameters */
-	usart_set_baudrate(USART2, baud);
-	usart_set_databits(USART2, databits);
-	usart_set_parity(USART2, uart_parity);
-	usart_set_stopbits(USART2, uart_stopbits);
+	usart_set_baudrate(USART_MODBUS, baud);
+	usart_set_databits(USART_MODBUS, databits);
+	usart_set_parity(USART_MODBUS, uart_parity);
+	usart_set_stopbits(USART_MODBUS, uart_stopbits);
 	/* Back to work. */
-	usart_enable(USART2);
+	usart_enable(USART_MODBUS);
 
 	return 1;
 }
