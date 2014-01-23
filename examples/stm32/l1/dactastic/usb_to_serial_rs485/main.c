@@ -108,7 +108,7 @@ int main(void)
 		RS485DE_PIN);
 	gpio_set(LED_RX_PORT, LED_RX_PIN);
 
-	//usart_setup();
+	usart_setup();
 
 	usb_cdcacm_init(&usbd_dev);
 

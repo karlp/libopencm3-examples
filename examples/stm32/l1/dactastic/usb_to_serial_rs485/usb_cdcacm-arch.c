@@ -36,7 +36,7 @@ void usb_cdcacm_setup_post_arch(void)
 {
 	/* Better enable interrupts */
 //	nvic_enable_irq(NVIC_USB_LP_IRQ);
-	//nvic_enable_irq(NVIC_CONF_DMA_USART);
+	nvic_enable_irq(NVIC_CONF_DMA_USART);
 }
 
 static void dma_write(uint8_t *data, int size)
