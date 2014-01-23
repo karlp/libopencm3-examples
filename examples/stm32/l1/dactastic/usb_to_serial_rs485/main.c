@@ -26,8 +26,6 @@
 #include "syscfg.h"
 #include "usb_cdcacm.h"
 
-static usbd_device *usbd_dev;
-
 static void usart_setup(void)
 {
 	/* Enable the USART interrupt. */
@@ -97,6 +95,8 @@ const clock_scale_t this_clock_config =
 
 int main(void)
 {
+	usbd_device *usbd_dev;
+
 	//rcc_clock_setup_pll(&clock_config[CLOCK_VRANGE1_HSI_PLL_32MHZ]);
 	rcc_clock_setup_pll_osc(HSE, &this_clock_config);
 
@@ -106,8 +106,9 @@ int main(void)
 		LED_RX_PIN | LED_TX_PIN);
 	gpio_mode_setup(RS485DE_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
 		RS485DE_PIN);
+	gpio_set(LED_RX_PORT, LED_RX_PIN);
 
-	usart_setup();
+	//usart_setup();
 
 	usb_cdcacm_init(&usbd_dev);
 
