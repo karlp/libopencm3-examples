@@ -20,6 +20,7 @@
 ##
 
 # Be silent per default, but 'make V=1' will show all compiler calls.
+V=1
 ifneq ($(V),1)
 Q		:= @
 NULL		:= 2>/dev/null
@@ -106,7 +107,7 @@ LDFLAGS		+= -T$(LDSCRIPT)
 LDFLAGS		+= -Wl,-Map=$(*).map
 LDFLAGS		+= -Wl,--gc-sections
 ifeq ($(V),1)
-LDFLAGS		+= -Wl,--print-gc-sections
+#LDFLAGS		+= -Wl,--print-gc-sections
 endif
 
 ###############################################################################
