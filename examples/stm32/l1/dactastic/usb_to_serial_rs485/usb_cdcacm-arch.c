@@ -57,6 +57,9 @@ static void dma_write(uint8_t *data, int size)
 
         dma_enable_channel(DMA1, DMA_CHANNEL_USART_WRITE);
 
+	// Make sure the tx complete is clear first
+	USART_CR1(USART_MODBUS) &= ~USART_CR1_TCIE;
+	USART_SR(USART_MODBUS) &= ~USART_SR_TC;
         usart_enable_tx_dma(USART_MODBUS);
 	
 }
