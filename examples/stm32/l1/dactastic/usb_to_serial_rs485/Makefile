@@ -16,7 +16,7 @@
 ##
 
 BINARY = main
-OBJS += usb_cdcacm.o usb_cdcacm-arch.o
+OBJS += usb_cdcacm.o usb_cdcacm-arch.o ms_systick.o
 
 LDSCRIPT = ../../../../../libopencm3/lib/stm32/l1/stm32l15xx6.ld
 

@@ -18,6 +18,7 @@
  */
 
 #include <libopencm3/cm3/nvic.h>
+#include <libopencm3/cm3/systick.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/usart.h>
@@ -86,11 +87,26 @@ const clock_scale_t this_clock_config =
                 .apb2_frequency = 32000000,
         };
 
+/**
+ * Configure the systick timer for 1 msec
+ */
+static void setup_systick(void)
+{
+	/* 32MHz / 8 => 4000000 counts per second. */
+	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB_DIV8);
+	/* 4000000/4000 = 1000 overflows per second - every 1ms one interrupt */
+	systick_set_reload(4000);
+	systick_interrupt_enable();
+	//nvic_set_priority(NVIC_SYSTICK_IRQ, IRQ_PRIOR_SYSTICK);
+	systick_counter_enable();
+}
+
 
 int main(void)
 {
 	usbd_device *usbd_dev;
 
+	setup_systick();
 	//rcc_clock_setup_pll(&clock_config[CLOCK_VRANGE1_HSI_PLL_32MHZ]);
 	rcc_clock_setup_pll_osc(HSE, &this_clock_config);
 
