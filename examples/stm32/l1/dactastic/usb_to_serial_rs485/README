@@ -5,7 +5,7 @@ README
 This example implements a USB CDC-ACM device, connected to USART2 (PA2/3)
 DMA is used to transfer from USB rx side to the USART tx,
 Interrupts are used from USART rx to fill the USB tx side.
-Baud rates from 600-115200 are tested, as well as even/odd/no parity
+Baud rates from 600-921600 are tested, as well as even/odd/no parity
 
 A GPIO is toggled around USART transmissions to control an RS485 line
 transceiver, following ST's app note. The RS485 driver enable line is,
