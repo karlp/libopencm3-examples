@@ -53,12 +53,6 @@ static void usart_setup(void)
 	usart_enable(USART_MODBUS);
 }
 
-/*void usb_lp_isr(void)
-{
-	usbd_poll(usbd_dev);
-}
- * */
-
 void USART_CONF_ISR(void)
 {
 	/* Check if we were called because of RXNE. */
@@ -113,7 +107,7 @@ int main(void)
 	usb_cdcacm_init(&usbd_dev);
 
 	while (1) {
-		usbd_poll(usbd_dev);
+//		usbd_poll(usbd_dev);
 	}
 
 }

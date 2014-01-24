@@ -284,3 +284,9 @@ void usb_cdcacm_init(usbd_device **usbd_dev)
 
 	usb_cdcacm_setup_post_arch();
 }
+
+/* Should be in arch code! */
+void usb_lp_isr(void)
+{
+	usbd_poll(acm_dev);
+}
