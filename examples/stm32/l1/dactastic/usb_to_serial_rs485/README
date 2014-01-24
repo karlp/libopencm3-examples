@@ -2,16 +2,20 @@
 README
 ------------------------------------------------------------------------------
 
-This example implements a USB CDC-ACM device, connected to USART2 (PA2/3)
+This example implements a USB CDC-ACM device, connected to USART1 (PB6/7)
 DMA is used to transfer from USB rx side to the USART tx,
 Interrupts are used from USART rx to fill the USB tx side.
 Baud rates from 600-921600 are tested, as well as even/odd/no parity
 
 A GPIO is toggled around USART transmissions to control an RS485 line
 transceiver, following ST's app note. The RS485 driver enable line is,
-by default, just the onboard red LEDs.
+by default, PB1
 
-The orange/blue LEDs indicate tx/rx activity, but especially for the rx line,
+A scope shows this perfectly following ST's notes, but some rs485 hardware isn't fast enough for this :(
+we can't do the regular 1ms pre, 4 ms post delay, as we're inside IRQ context, need to queue a callback to run in
+userspace to do the rest of it. (Which means we need dual buffering dma at some point...)
+
+The blue LEDs indicate tx/rx activity, but especially for the rx line,
 you won't really see it without heavy data rates.
 
 This example is heavily based on the existing usb_cdcacm and usart demos.
