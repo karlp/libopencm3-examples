@@ -26,9 +26,15 @@
 
 #include "syscfg.h"
 #include "usb_cdcacm.h"
+#include "ringbuf.h"
+#include "ms_systick.h"
+
+static struct ringbuf ringbuf_rx;
+static uint8_t buf_rx[128];
 
 static void usart_setup(void)
 {
+	ringbuf_init(&ringbuf_rx, buf_rx, sizeof (buf_rx));
 	/* Enable the USART interrupt. */
 	nvic_enable_irq(NVIC_CONF_USART);
 
@@ -54,6 +60,21 @@ static void usart_setup(void)
 	usart_enable(USART_MODBUS);
 }
 
+static void task_usart_run(void)
+{
+	if (ringbuf_elements(&ringbuf_rx) == 0) {
+		return;
+	}
+	
+	uint8_t packet_buf[64];
+	uint8_t packet_size = 0;
+	while (ringbuf_elements(&ringbuf_rx) > 0 && packet_size < sizeof(packet_buf)) {
+		packet_buf[packet_size++] = ringbuf_get(&ringbuf_rx);
+	}
+	glue_data_received_cb(packet_buf, packet_size);
+
+}
+
 void USART_CONF_ISR(void)
 {
 	/* Check if we were called because of RXNE. */
@@ -61,7 +82,7 @@ void USART_CONF_ISR(void)
 		(USART_SR(USART_MODBUS) & USART_SR_RXNE)) {
 		gpio_set(LED_RX_PORT, LED_RX_PIN);
 		uint8_t c = usart_recv(USART_MODBUS);
-		glue_data_received_cb(&c, 1);
+		ringbuf_put(&ringbuf_rx, c);
 		gpio_clear(LED_RX_PORT, LED_RX_PIN);
 	}
 	if ((USART_CR1(USART_MODBUS) & USART_CR1_TCIE) &&
@@ -121,9 +142,14 @@ int main(void)
 	usart_setup();
 
 	usb_cdcacm_init(&usbd_dev);
+	int64_t last = millis();
 
 	while (1) {
-//		usbd_poll(usbd_dev);
+		// If it's more than X usecs since we last tried
+		if (millis() - last > 0) {
+			task_usart_run();
+			last = millis();
+		}
 	}
 
 }
