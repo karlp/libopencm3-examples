@@ -64,11 +64,11 @@ static void usart_setup(void)
 volatile int rx_overflows = 0;
 static void task_usart_run(void)
 {
-//	rclog_log("turun, rxovf=%d", rx_overflows, 0);
 	if (ringbuf_elements(&ringbuf_rx) == 0) {
 		return;
 	}
 	
+	rclog_log("turun, data for host: %d, rxovf: %d", ringbuf_elements(&ringbuf_rx), rx_overflows);
 	uint8_t packet_buf[64];
 	uint8_t packet_size = 0;
 	while (ringbuf_elements(&ringbuf_rx) > 0 && packet_size < sizeof(packet_buf)) {
@@ -84,13 +84,9 @@ void USART_CONF_ISR(void)
 	if (usart_get_interrupt_source(USART_MODBUS, USART_SR_RXNE)) {
 		gpio_set(LED_RX_PORT, LED_RX_PIN);
 		uint8_t c = usart_recv(USART_MODBUS);
-#if 1
 		if (!ringbuf_put(&ringbuf_rx, c)) {
 			rx_overflows++;
 		}
-#else
-		ringbuf_put(&ringbuf_rx, c);
-#endif
 		gpio_clear(LED_RX_PORT, LED_RX_PIN);
 	}
 	if (usart_get_interrupt_source(USART_MODBUS, USART_SR_TC)) {
@@ -153,11 +149,10 @@ int main(void)
 	usb_cdcacm_init(&usbd_dev);
 	int64_t last = millis();
 	
-//	rclog_init(&klog);
+	rclog_init(&klog);
 	while (1) {
 		// If it's more than X usecs since we last tried
 		if (millis() - last > 0) {
-//			rclog_log("tu_run: ", 0, 0);
 			task_usart_run();
 			last = millis();
 		}

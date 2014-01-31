@@ -57,6 +57,7 @@ static void dma_write(uint8_t *data, int size)
         dma_set_priority(DMA1, DMA_CHANNEL_USART_WRITE, DMA_CCR_PL_VERY_HIGH);
 
         dma_enable_transfer_complete_interrupt(DMA1, DMA_CHANNEL_USART_WRITE);
+        dma_enable_transfer_error_interrupt(DMA1, DMA_CHANNEL_USART_WRITE);
 
         dma_enable_channel(DMA1, DMA_CHANNEL_USART_WRITE);
 
@@ -79,13 +80,11 @@ void DMA_CHANNEL_USART_WRITE_IRQ_HANDLER(void)
 		dma_disable_channel(DMA1, DMA_CHANNEL_USART_WRITE);
 //		dma_write_in_progress = false;
         }
-#if 0
 	if (dma_get_interrupt_flag(DMA1, DMA_CHANNEL_USART_WRITE, DMA_TEIF)) {
 		dma_clear_interrupt_flags(DMA1, DMA_CHANNEL_USART_WRITE, DMA_TEIF);
 		dma_errors++;
 		rclog_log("dma_errors: %d", dma_errors, 0);
 	}
-#endif
 }
 
 void glue_send_data_cb(uint8_t *buf, uint16_t len)
@@ -94,13 +93,14 @@ void glue_send_data_cb(uint8_t *buf, uint16_t len)
 	gpio_set(RS485DE_PORT, RS485DE_PIN);
 #define USE_DMA 1
 #if USE_DMA
+	rclog_log("g_send_cb %d bytes: ", len, 0);
 //	while (dma_write_in_progress) {
 //		;
 //	}
 	dma_write(buf, len);
 #else
 	int i;
-	//rclog_log("g_send_cb %d bytes: ", len, 0);
+	rclog_log("g_send_cb %d bytes: ", len, 0);
 	for (i = 0; i < len; i++) {
 		usart_send_blocking(USART_MODBUS, buf[i]);
 	}
