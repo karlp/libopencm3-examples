@@ -81,8 +81,7 @@ static void task_usart_run(void)
 void USART_CONF_ISR(void)
 {
 	/* Check if we were called because of RXNE. */
-	if ((USART_CR1(USART_MODBUS) & USART_CR1_RXNEIE) &&
-		(USART_SR(USART_MODBUS) & USART_SR_RXNE)) {
+	if (usart_get_interrupt_source(USART_MODBUS, USART_SR_RXNE)) {
 		gpio_set(LED_RX_PORT, LED_RX_PIN);
 		uint8_t c = usart_recv(USART_MODBUS);
 #if 1
@@ -94,8 +93,7 @@ void USART_CONF_ISR(void)
 #endif
 		gpio_clear(LED_RX_PORT, LED_RX_PIN);
 	}
-	if ((USART_CR1(USART_MODBUS) & USART_CR1_TCIE) &&
-		(USART_SR(USART_MODBUS) & USART_SR_TC)) {
+	if (usart_get_interrupt_source(USART_MODBUS, USART_SR_TC)) {
 		USART_CR1(USART_MODBUS) &= ~USART_CR1_TCIE;
 		USART_SR(USART_MODBUS) &= ~USART_SR_TC;
 		gpio_clear(RS485DE_PORT, RS485DE_PIN);
