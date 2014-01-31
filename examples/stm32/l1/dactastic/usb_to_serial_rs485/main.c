@@ -28,6 +28,7 @@
 #include "usb_cdcacm.h"
 #include "ringbuf.h"
 #include "ms_systick.h"
+#include "rclog.h"
 
 static struct ringbuf ringbuf_rx;
 static uint8_t buf_rx[128];
@@ -46,11 +47,11 @@ static void usart_setup(void)
 	rcc_periph_clock_enable(RCC_CONF_USART);
 
 	/* Setup USART parameters. */
-	usart_set_baudrate(USART_MODBUS, 115200);
-	usart_set_databits(USART_MODBUS, 8);
+	usart_set_baudrate(USART_MODBUS, 19200);
+	usart_set_databits(USART_MODBUS, 9);
 	usart_set_stopbits(USART_MODBUS, USART_STOPBITS_1);
 	usart_set_mode(USART_MODBUS, USART_MODE_TX_RX);
-	usart_set_parity(USART_MODBUS, USART_PARITY_NONE);
+	usart_set_parity(USART_MODBUS, USART_PARITY_EVEN);
 	usart_set_flow_control(USART_MODBUS, USART_FLOWCONTROL_NONE);
 
 	/* Enable USART_MODBUS Receive interrupt. */
@@ -60,8 +61,10 @@ static void usart_setup(void)
 	usart_enable(USART_MODBUS);
 }
 
+volatile int rx_overflows = 0;
 static void task_usart_run(void)
 {
+//	rclog_log("turun, rxovf=%d", rx_overflows, 0);
 	if (ringbuf_elements(&ringbuf_rx) == 0) {
 		return;
 	}
@@ -82,7 +85,13 @@ void USART_CONF_ISR(void)
 		(USART_SR(USART_MODBUS) & USART_SR_RXNE)) {
 		gpio_set(LED_RX_PORT, LED_RX_PIN);
 		uint8_t c = usart_recv(USART_MODBUS);
+#if 1
+		if (!ringbuf_put(&ringbuf_rx, c)) {
+			rx_overflows++;
+		}
+#else
 		ringbuf_put(&ringbuf_rx, c);
+#endif
 		gpio_clear(LED_RX_PORT, LED_RX_PIN);
 	}
 	if ((USART_CR1(USART_MODBUS) & USART_CR1_TCIE) &&
@@ -122,6 +131,8 @@ static void setup_systick(void)
 	systick_counter_enable();
 }
 
+struct rclog_obj_t klog;
+
 
 int main(void)
 {
@@ -143,10 +154,12 @@ int main(void)
 
 	usb_cdcacm_init(&usbd_dev);
 	int64_t last = millis();
-
+	
+//	rclog_init(&klog);
 	while (1) {
 		// If it's more than X usecs since we last tried
 		if (millis() - last > 0) {
+//			rclog_log("tu_run: ", 0, 0);
 			task_usart_run();
 			last = millis();
 		}

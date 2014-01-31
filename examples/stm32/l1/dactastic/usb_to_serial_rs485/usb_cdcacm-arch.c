@@ -25,6 +25,7 @@
 
 #include "usb_cdcacm.h"
 #include "syscfg.h"
+#include "rclog.h"
 
 void usb_cdcacm_setup_pre_arch(void)
 {
@@ -39,6 +40,8 @@ void usb_cdcacm_setup_post_arch(void)
 	nvic_enable_irq(NVIC_CONF_DMA_USART);
 }
 
+volatile bool dma_write_in_progress = false;
+volatile int dma_errors = 0;
 static void dma_write(uint8_t *data, int size)
 {	
         /* Reset DMA channel*/
@@ -61,6 +64,7 @@ static void dma_write(uint8_t *data, int size)
 	USART_CR1(USART_MODBUS) &= ~USART_CR1_TCIE;
 	USART_SR(USART_MODBUS) &= ~USART_SR_TC;
         usart_enable_tx_dma(USART_MODBUS);
+	dma_write_in_progress = true;
 	
 }
 
@@ -73,14 +77,36 @@ void DMA_CHANNEL_USART_WRITE_IRQ_HANDLER(void)
 		dma_disable_transfer_complete_interrupt(DMA1, DMA_CHANNEL_USART_WRITE);
 	        usart_disable_tx_dma(USART_MODBUS);
 		dma_disable_channel(DMA1, DMA_CHANNEL_USART_WRITE);
+//		dma_write_in_progress = false;
         }
+#if 0
+	if (dma_get_interrupt_flag(DMA1, DMA_CHANNEL_USART_WRITE, DMA_TEIF)) {
+		dma_clear_interrupt_flags(DMA1, DMA_CHANNEL_USART_WRITE, DMA_TEIF);
+		dma_errors++;
+		rclog_log("dma_errors: %d", dma_errors, 0);
+	}
+#endif
 }
 
 void glue_send_data_cb(uint8_t *buf, uint16_t len)
 {
 	gpio_set(LED_TX_PORT, LED_TX_PIN);
 	gpio_set(RS485DE_PORT, RS485DE_PIN);
+#define USE_DMA 1
+#if USE_DMA
+//	while (dma_write_in_progress) {
+//		;
+//	}
 	dma_write(buf, len);
+#else
+	int i;
+	//rclog_log("g_send_cb %d bytes: ", len, 0);
+	for (i = 0; i < len; i++) {
+		usart_send_blocking(USART_MODBUS, buf[i]);
+	}
+	gpio_clear(LED_TX_PORT, LED_TX_PIN);
+	gpio_clear(RS485DE_PORT, RS485DE_PIN);
+#endif
 }
 
 void glue_set_line_state_cb(uint8_t dtr, uint8_t rts)
