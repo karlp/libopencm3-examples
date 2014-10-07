@@ -67,6 +67,7 @@ void usart2_isr(void)
 		(USART_SR(USART2) & USART_SR_RXNE)) {
 		gpio_set(LED_RX_PORT, LED_RX_PIN);
 		uint8_t c = usart_recv(USART2);
+		/* Wrong, push to fifo, let usb task drain fifo into usb ep */
 		glue_data_received_cb(&c, 1);
 		gpio_clear(LED_RX_PORT, LED_RX_PIN);
 	}
