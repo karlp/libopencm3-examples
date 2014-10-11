@@ -16,58 +16,68 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this library.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <errno.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #include <libopencm3/stm32/rcc.h>
-#include <libopencm3/stm32/flash.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/usart.h>
 #include <libopencm3/stm32/i2c.h>
 #include "stts75.h"
 
-static void usart_setup(void)
+#include "syscfg.h"
+
+int _write(int file, char *ptr, int len);
+
+static void clock_setup(void)
 {
-	/* Enable clocks for GPIO port A (for GPIO_USART1_TX) and USART1. */
-	rcc_periph_clock_enable(RCC_GPIOA);
-	rcc_periph_clock_enable(RCC_USART1);
+	rcc_clock_setup_in_hsi_out_24mhz();
+	/* Enable clocks for console and i2c peripheral*/
+	rcc_periph_clock_enable(CONSOLE_UART_RCC);
+	rcc_periph_clock_enable(I2C_SENSOR_RCC);
 
-	/* Setup GPIO pin GPIO_USART1_TX/GPIO9 on GPIO port A for transmit. */
-	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ,
-	              GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART1_TX);
+	rcc_periph_clock_enable(RCC_AFIO);
 
-	/* Setup UART parameters. */
-	usart_set_baudrate(USART1, 115200);
-	usart_set_databits(USART1, 8);
-	usart_set_stopbits(USART1, USART_STOPBITS_1);
-	usart_set_mode(USART1, USART_MODE_TX_RX);
-	usart_set_parity(USART1, USART_PARITY_NONE);
-	usart_set_flow_control(USART1, USART_FLOWCONTROL_NONE);
-
-	/* Finally enable the USART. */
-	usart_enable(USART1);
+	/* and IO Ports for the console, i2c, and leds */
+	rcc_periph_clock_enable(CONSOLE_UART_RCC_GPIO);
+	rcc_periph_clock_enable(LED_DISCO_RCC);
+	rcc_periph_clock_enable(I2C_SENSOR_RCC_GPIO);
 }
 
-static void gpio_setup(void)
+static void usart_setup(void)
 {
-	/* Enable GPIOB clock. */
-	rcc_periph_clock_enable(RCC_GPIOB);
+	gpio_set_mode(CONSOLE_UART_GPIO_PORT, GPIO_MODE_OUTPUT_50_MHZ,
+		GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, CONSOLE_UART_GPIO_PINS);
 
-	/* Set GPIO6/7 (in GPIO port B) to 'output push-pull' for the LEDs. */
-	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_2_MHZ,
-	              GPIO_CNF_OUTPUT_PUSHPULL, GPIO6);
-	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_2_MHZ,
-	              GPIO_CNF_OUTPUT_PUSHPULL, GPIO7);
+	/* Setup UART parameters. */
+	usart_set_baudrate(CONSOLE_UART, 115200);
+	usart_set_databits(CONSOLE_UART, 8);
+	usart_set_stopbits(CONSOLE_UART, USART_STOPBITS_1);
+	usart_set_mode(CONSOLE_UART, USART_MODE_TX);
+	usart_set_parity(CONSOLE_UART, USART_PARITY_NONE);
+	usart_set_flow_control(CONSOLE_UART, USART_FLOWCONTROL_NONE);
+
+	/* Finally enable the USART. */
+	usart_enable(CONSOLE_UART);
+}
+
+static void led_setup(void)
+{
+	rcc_periph_clock_enable(LED_DISCO_RCC);
+	gpio_set_mode(LED_DISCO_BLUE_PORT, GPIO_MODE_OUTPUT_2_MHZ,
+		GPIO_CNF_OUTPUT_PUSHPULL, LED_DISCO_BLUE_PIN);
+	gpio_set_mode(LED_DISCO_GREEN_PORT, GPIO_MODE_OUTPUT_2_MHZ,
+		GPIO_CNF_OUTPUT_PUSHPULL, LED_DISCO_GREEN_PIN);
 }
 
 static void i2c_setup(void)
 {
-	/* Enable clocks for I2C2 and AFIO. */
-	rcc_periph_clock_enable(RCC_I2C2);
-	rcc_periph_clock_enable(RCC_AFIO);
 
 	/* Set alternate functions for the SCL and SDA pins of I2C2. */
 	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ,
-		      GPIO_CNF_OUTPUT_ALTFN_OPENDRAIN,
-		      GPIO_I2C2_SCL | GPIO_I2C2_SDA);
+		GPIO_CNF_OUTPUT_ALTFN_OPENDRAIN,
+		GPIO_I2C2_SCL | GPIO_I2C2_SDA);
 
 	/* Disable the I2C before changing any configuration. */
 	i2c_peripheral_disable(I2C2);
@@ -102,25 +112,45 @@ static void i2c_setup(void)
 	i2c_peripheral_enable(I2C2);
 }
 
+/**
+ * Use USART_CONSOLE as a console.
+ * This is a syscall for newlib
+ * @param file
+ * @param ptr
+ * @param len
+ * @return
+ */
+int _write(int file, char *ptr, int len)
+{
+	int i;
+
+	if (file == STDOUT_FILENO || file == STDERR_FILENO) {
+		for (i = 0; i < len; i++) {
+			if (ptr[i] == '\n') {
+				usart_send_blocking(CONSOLE_UART, '\r');
+			}
+			usart_send_blocking(CONSOLE_UART, ptr[i]);
+		}
+		return i;
+	}
+	errno = EIO;
+	return -1;
+}
+
 int main(void)
 {
 	int i = 0;
 	uint16_t temperature;
 
-	rcc_clock_setup_in_hse_16mhz_out_72mhz();
-	gpio_setup();
+	clock_setup();
+	led_setup();
 	usart_setup();
 	i2c_setup();
 
-	gpio_clear(GPIOB, GPIO7);	/* LED1 on */
-	gpio_set(GPIOB, GPIO6);		/* LED2 off */
+	gpio_clear(LED_DISCO_BLUE_PORT, LED_DISCO_BLUE_PIN);
+	gpio_set(LED_DISCO_GREEN_PORT, LED_DISCO_GREEN_PIN);
 
-	/* Send a message on USART1. */
-	usart_send(USART1, 's');
-	usart_send(USART1, 't');
-	usart_send(USART1, 'm');
-	usart_send(USART1, '\r');
-	usart_send(USART1, '\n');
+	printf("Hello from: " __FILE__ "\n");
 
 	stts75_write_config(I2C2, STTS75_SENSOR0);
 	stts75_write_temp_os(I2C2, STTS75_SENSOR0, 0x1a00); /* 26 degrees */
