@@ -21,6 +21,8 @@ BINARY = i2c-sht21
 
 OBJS = stts75.o
 LDSCRIPT = ../stm32vl-discovery.ld
+OOCD_INTERFACE  ?= stlink-v1
+OOCD_BOARD      ?= stm32vldiscovery
 
 include ../../Makefile.include
 
