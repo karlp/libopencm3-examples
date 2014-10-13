@@ -19,7 +19,8 @@
 
 BINARY = i2c-sht21
 
-OBJS = stts75.o
+CFLAGS+= -ggdb3
+OBJS = sht21.o
 LDSCRIPT = ../stm32vl-discovery.ld
 OOCD_INTERFACE  ?= stlink-v1
 OOCD_BOARD      ?= stm32vldiscovery

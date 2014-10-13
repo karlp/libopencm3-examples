@@ -23,6 +23,8 @@
 #ifndef SYSCFG_H
 #define	SYSCFG_H
 BEGIN_DECLS
+        
+#include <libopencm3/stm32/rcc.h>
 
 /* F1 version */
 #define CONSOLE_UART    USART2
@@ -42,7 +44,7 @@ BEGIN_DECLS
 #define I2C_SENSOR_RCC RCC_I2C1
 #define I2C_SENSOR_RCC_GPIO RCC_GPIOB
 #define I2C_SENSOR_GPIO_PORT GPIOB
-#define I2C_SENSOR_GPIO_PINS (GPIO6 | GPIO7)
+#define I2C_SENSOR_GPIO_PINS (GPIO_I2C1_SCL | GPIO_I2C1_SDA)
 
 END_DECLS
 #endif	/* SYSCFG_H */
