@@ -34,7 +34,19 @@
 
 #define USART_CONSOLE USART2
 
-#define SENSOR_ADDRESS 0x40
+#define SENSOR_ADDRESS (0x40)
+
+enum sht21_cmd_e {
+	SHT21_CMD_TEMP_HOLD = 0xe3,
+	SHT21_CMD_HUMIDITY_HOLD = 0xe5,
+	SHT21_CMD_TEMP_NOHOLD = 0xf3,
+	SHT21_CMD_HUMIDITY_NOHOLD = 0xf5,
+	SHT21_CMD_WRITE_REG = 0xe6,
+	SHT21_CMD_READ_REG = 0xe7,
+	SHT21_CMD_RESET = 0xfe,
+	/* 0xfa, 0x0f to read serial */
+};
+
 
 int _write(int file, char *ptr, int len);
 
@@ -122,7 +134,7 @@ static void codec_i2c_init(void)
 	i2c_peripheral_disable(I2C1);
 	i2c_reset(I2C1);
 	i2c_set_standard_mode(I2C1);
-	i2c_enable_ack(I2C1);
+	//i2c_enable_ack(I2C1);
 	i2c_set_dutycycle(I2C1, I2C_CCR_DUTY_DIV2); /* default, no need to do this really */
 
 	/* Board specific settings based on time */
@@ -217,26 +229,30 @@ static uint32_t codec_read_reg(uint8_t reg)
 	/* Waiting for address is transferred. */
 	while (!(I2C_SR1(i2c) & I2C_SR1_ADDR));
 
-	i2c_disable_ack(i2c);
+	//i2c_disable_ack(i2c);
 
 	/* Cleaning ADDR condition sequence. */
 	reg32 = I2C_SR2(i2c);
 	(void) reg32; /* unused */
 
-	i2c_send_stop(i2c);
+	//i2c_send_stop(i2c);
 
 	while (!(I2C_SR1(i2c) & I2C_SR1_RxNE));
 	uint32_t result = i2c_get_data(i2c);
 
-	i2c_enable_ack(i2c);
+	//i2c_enable_ack(i2c);
 	I2C_SR1(i2c) &= ~I2C_SR1_AF;
 	return result;
 }
 
 static void codec_readid(void)
 {
-	uint8_t res = codec_read_reg(0xe7);
-	printf("raw res = %#x\n", res);
+	uint8_t raw = codec_read_reg(SHT21_CMD_READ_REG);
+	printf("raw user reg = %#x\n", raw);
+	int res = ((raw & 0x80) >> 6) | (raw & 1);
+	printf("temp resolution is in %d bits\n", 14 - res);
+	printf("battery status: %s\n", (raw & (1<<6) ? "failing" : "good"));
+	printf("On chip heater: %s\n", (raw & 0x2) ? "on" : "off");
 }
 
 int main(void)

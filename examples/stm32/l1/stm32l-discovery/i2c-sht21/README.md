@@ -14,4 +14,8 @@ Recommended wiring:
 
 example output:
 
-	TBD
+	hi guys! this is: i2c-sht21.c
+	raw res = 0x3a
+	temp resolution is in 14 bits
+	battery status: good
+
