@@ -193,6 +193,32 @@ static int codec_write_reg(uint8_t reg, uint8_t val)
 	return 0;
 }
 
+static void sht21_send_data(uint32_t i2c, size_t n, uint8_t *data) {
+	while ((I2C_SR2(i2c) & I2C_SR2_BUSY)) {
+	}
+
+	i2c_send_start(i2c);
+
+	/* Wait for master mode selected */
+	while (!((I2C_SR1(i2c) & I2C_SR1_SB)
+		& (I2C_SR2(i2c) & (I2C_SR2_MSL | I2C_SR2_BUSY))));
+
+	i2c_send_7bit_address(i2c, SENSOR_ADDRESS, I2C_WRITE);
+
+	/* Waiting for address is transferred. */
+	while (!(I2C_SR1(i2c) & I2C_SR1_ADDR));
+
+	/* Cleaning ADDR condition sequence. */
+	uint32_t reg32 = I2C_SR2(i2c);
+	(void) reg32; /* unused */
+
+	size_t i;
+	for (i = 0; i < n; i++) {
+		i2c_send_data(i2c, data[i]);
+		while (!(I2C_SR1(i2c) & (I2C_SR1_BTF)));
+	}
+}
+
 static void sht21_send_cmd(uint32_t i2c, uint8_t cmd)
 {
 	while ((I2C_SR2(i2c) & I2C_SR2_BUSY)) {
@@ -298,16 +324,6 @@ static void sht21_readn(uint32_t i2c, int n, uint8_t *res)
 	(void) reg32; /* unused */
 
 	int i = 0;
-#ifdef KARLSway
-	while (i < n) {
-		while (!(I2C_SR1(i2c) & I2C_SR1_RxNE));
-		if ((i + 1) == n) {
-			i2c_disable_ack(i2c);
-			i2c_send_stop(i2c);
-		}
-		res[i++] = i2c_get_data(i2c);
-	}
-#endif
 	for (i = 0; i < n; ++i) {
 		if(i == n - 1) {
 			i2c_disable_ack(i2c);
@@ -327,10 +343,21 @@ static void codec_readid(void)
 	uint8_t raw;
 	sht21_readn(I2C1, 1, &raw);
 	printf("raw user reg = %#x\n", raw);
-	int res = ((raw & 0x80) >> 6) | (raw & 1);
-	printf("temp resolution is in %d bits\n", 14 - res);
+	int resolution = ((raw & 0x80) >> 6) | (raw & 1);
+	printf("temp resolution is in %d bits\n", 14 - resolution);
 	printf("battery status: %s\n", (raw & (1 << 6) ? "failing" : "good"));
 	printf("On chip heater: %s\n", (raw & 0x2) ? "on" : "off");
+	
+	uint8_t req1[] = { 0xfa, 0x0f };
+	uint8_t res[8];
+	sht21_send_data(I2C1, 2, req1);
+	sht21_readn(I2C1, sizeof(res), res);
+	uint8_t req2[] = { 0xfc, 0xc9 };
+	uint8_t res2[8];
+	sht21_send_data(I2C1, 2, req2);
+	sht21_readn(I2C1, sizeof(res), res2);
+	printf("Serial = %02x%02x %02x%02x %02x%02x %02x%02x\n",
+		res2[3], res2[4], res[0], res[2], res[4], res[6], res2[0], res2[1]);
 }
 
 static float sht21_convert_temp(uint16_t raw)
