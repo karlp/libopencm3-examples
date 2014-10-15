@@ -18,7 +18,9 @@
  */
 
 #include <errno.h>
+#include <inttypes.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/stm32/gpio.h>
@@ -191,10 +193,8 @@ static int codec_write_reg(uint8_t reg, uint8_t val)
 	return 0;
 }
 
-static uint32_t codec_read_reg(uint8_t reg)
+static void sht21_send_cmd(uint32_t i2c, uint8_t cmd)
 {
-	uint32_t i2c = I2C1;
-
 	while ((I2C_SR2(i2c) & I2C_SR2_BUSY)) {
 	}
 
@@ -213,11 +213,12 @@ static uint32_t codec_read_reg(uint8_t reg)
 	uint32_t reg32 = I2C_SR2(i2c);
 	(void) reg32; /* unused */
 
-	/*  Common stuff ABOVE HERE     */
-
-	i2c_send_data(i2c, reg);
+	i2c_send_data(i2c, cmd);
 	while (!(I2C_SR1(i2c) & (I2C_SR1_BTF)));
+}
 
+static uint32_t sht21_read1(uint32_t i2c)
+{
 	i2c_send_start(i2c);
 
 	/* Wait for master mode selected */
@@ -229,30 +230,149 @@ static uint32_t codec_read_reg(uint8_t reg)
 	/* Waiting for address is transferred. */
 	while (!(I2C_SR1(i2c) & I2C_SR1_ADDR));
 
-	//i2c_disable_ack(i2c);
+	//i2c_disable_ack(i2c);  // SHould be here for single byte reception?
 
 	/* Cleaning ADDR condition sequence. */
-	reg32 = I2C_SR2(i2c);
+	uint32_t reg32 = I2C_SR2(i2c);
 	(void) reg32; /* unused */
 
-	//i2c_send_stop(i2c);
 
 	while (!(I2C_SR1(i2c) & I2C_SR1_RxNE));
 	uint32_t result = i2c_get_data(i2c);
 
 	//i2c_enable_ack(i2c);
 	I2C_SR1(i2c) &= ~I2C_SR1_AF;
+
+	i2c_send_stop(i2c);
+	//printf("%s returned %#" PRIX32 " (%" PRIu32 ")\n", __func__, result, result);
 	return result;
+}
+
+static uint32_t sht21_read2(uint32_t i2c)
+{
+	i2c_send_start(i2c);
+
+	/* Wait for master mode selected */
+	while (!((I2C_SR1(i2c) & I2C_SR1_SB)
+		& (I2C_SR2(i2c) & (I2C_SR2_MSL | I2C_SR2_BUSY))));
+
+	i2c_send_7bit_address(i2c, SENSOR_ADDRESS, I2C_READ);
+
+	/* Waiting for address is transferred. */
+	while (!(I2C_SR1(i2c) & I2C_SR1_ADDR));
+
+	i2c_disable_ack(i2c);
+	i2c_nack_next(i2c);
+
+	/* Cleaning ADDR condition sequence. */
+	uint32_t reg32 = I2C_SR2(i2c);
+	(void) reg32; /* unused */
+
+	while (!(I2C_SR1(i2c) & (I2C_SR1_BTF)));
+
+	i2c_send_stop(i2c);
+	uint32_t result = i2c_get_data(i2c);
+	result <<= 8;
+	result |= i2c_get_data(i2c);
+	//printf("%s returned %#" PRIX32 " (%" PRIu32 ")\n", __func__, result, result);
+	return result;
+}
+
+static void sht21_readn(uint32_t i2c, int n, uint8_t *res)
+{
+	//assert(n > 0);
+	i2c_send_start(i2c);
+
+	i2c_enable_ack(i2c);
+	
+	/* Wait for master mode selected */
+	while (!((I2C_SR1(i2c) & I2C_SR1_SB)
+		& (I2C_SR2(i2c) & (I2C_SR2_MSL | I2C_SR2_BUSY))));
+
+	i2c_send_7bit_address(i2c, SENSOR_ADDRESS, I2C_READ);
+
+	/* Waiting for address is transferred. */
+	while (!(I2C_SR1(i2c) & I2C_SR1_ADDR));
+	/* Cleaning ADDR condition sequence. */
+	uint32_t reg32 = I2C_SR2(i2c);
+	(void) reg32; /* unused */
+
+	int i = 0;
+#ifdef KARLSway
+	while (i < n) {
+		while (!(I2C_SR1(i2c) & I2C_SR1_RxNE));
+		if ((i + 1) == n) {
+			i2c_disable_ack(i2c);
+			i2c_send_stop(i2c);
+		}
+		res[i++] = i2c_get_data(i2c);
+	}
+#endif
+	for (i = 0; i < n; ++i) {
+		if(i == n - 1) {
+			i2c_disable_ack(i2c);
+		}
+		while (!(I2C_SR1(i2c) & I2C_SR1_RxNE));
+		res[i] = i2c_get_data(i2c);
+	}
+	i2c_send_stop(i2c);
+
+	return;
 }
 
 static void codec_readid(void)
 {
-	uint8_t raw = codec_read_reg(SHT21_CMD_READ_REG);
+	sht21_send_cmd(I2C1, SHT21_CMD_READ_REG);
+//	uint8_t raw = sht21_read1(I2C1);
+	uint8_t raw;
+	sht21_readn(I2C1, 1, &raw);
 	printf("raw user reg = %#x\n", raw);
 	int res = ((raw & 0x80) >> 6) | (raw & 1);
 	printf("temp resolution is in %d bits\n", 14 - res);
-	printf("battery status: %s\n", (raw & (1<<6) ? "failing" : "good"));
+	printf("battery status: %s\n", (raw & (1 << 6) ? "failing" : "good"));
 	printf("On chip heater: %s\n", (raw & 0x2) ? "on" : "off");
+}
+
+static float sht21_convert_temp(uint16_t raw)
+{
+	//assert((raw & 0x2) == 0x2);
+	raw &= ~0x3; /* Clear lower status bits */
+	float tf = -46.85 + 175.72 * ((float) raw / 65536.0);
+	return tf;
+}
+
+static float sht21_convert_humi(uint16_t raw)
+{
+	//assert((raw & 0x2) == 0);
+	raw &= ~0x3; /* Clear lower status bits */
+	float tf = -6 + 125 * ((float) raw / 65536.0);
+	return tf;
+}
+
+static float sht21_read_temp_hold(uint32_t i2c)
+{
+	gpio_set(LED_DISCO_BLUE_PORT, LED_DISCO_BLUE_PIN);
+	sht21_send_cmd(i2c, SHT21_CMD_TEMP_HOLD);
+
+	//uint16_t left = sht21_read2(i2c);
+	//uint16_t left = sht21_read2(i2c);
+	uint8_t data[3];
+	sht21_readn(i2c, 2, data);
+	uint8_t crc = data[2];
+	uint16_t temp = data[0] << 8 | data[1];
+	printf("CRC=%#x, data0=%#x, data1=%#x\n", crc, data[0], data[1]);
+	gpio_clear(LED_DISCO_BLUE_PORT, LED_DISCO_BLUE_PIN);
+	return sht21_convert_temp(temp);
+}
+
+static float sht21_read_humi_hold(uint32_t i2c)
+{
+	gpio_set(LED_DISCO_BLUE_PORT, LED_DISCO_BLUE_PIN);
+	sht21_send_cmd(i2c, SHT21_CMD_HUMIDITY_HOLD);
+
+	uint16_t left = sht21_read2(i2c);
+	gpio_clear(LED_DISCO_BLUE_PORT, LED_DISCO_BLUE_PIN);
+	return sht21_convert_humi(left);
 }
 
 int main(void)
@@ -269,22 +389,15 @@ int main(void)
 	codec_init();
 	codec_readid();
 
-#if 0
-	codec_write_reg(0x14, 0xff);
-	for (i = 0; i < 8; i++) {
-		uint8_t pass_vol_a = codec_read_reg(0x14);
-		printf("Passthrough vol A was: %#x\n", pass_vol_a);
-		codec_write_reg(0x14, pass_vol_a >> 1);
-		gpio_toggle(LED_DISCO_GREEN_PORT, LED_DISCO_GREEN_PIN);
+	while (1) {
+		float temp = sht21_read_temp_hold(I2C1);
+		float humi = sht21_read_humi_hold(I2C1);
+		printf("Temp: %f C, RH: %f\n", temp, humi);
 		for (j = 0; j < 100000; j++) { /* Wait a bit. */
 			__asm__("NOP");
 		}
-	}
-#endif
+		gpio_toggle(LED_DISCO_GREEN_PORT, LED_DISCO_GREEN_PIN);
 
-	/* Nothing else to do */;
-	while (1) {
-		;
 	}
 	return 0;
 }
