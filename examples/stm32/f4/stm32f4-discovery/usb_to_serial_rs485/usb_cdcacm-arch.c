@@ -41,7 +41,7 @@ void usb_cdcacm_setup_pre_arch(void)
 void usb_cdcacm_setup_post_arch(void)
 {
 	/* Better enable interrupts */
-	nvic_enable_irq(NVIC_OTG_FS_IRQ);
+//	nvic_enable_irq(NVIC_OTG_FS_IRQ);
 	nvic_enable_irq(NVIC_DMA1_STREAM6_IRQ);
 }
 

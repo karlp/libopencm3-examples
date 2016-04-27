@@ -24,8 +24,11 @@
 
 #include "syscfg.h"
 #include "usb_cdcacm.h"
+#include "ringb.h"
 
 static usbd_device *usbd_dev;
+static struct ringb ring;
+static uint8_t ring_data[64];
 
 static void usart_setup(void)
 {
@@ -55,11 +58,6 @@ static void usart_setup(void)
 	usart_enable(USART2);
 }
 
-void otg_fs_isr(void)
-{
-	usbd_poll(usbd_dev);
-}
-
 void usart2_isr(void)
 {
 	/* Check if we were called because of RXNE. */
@@ -68,7 +66,16 @@ void usart2_isr(void)
 		gpio_set(LED_RX_PORT, LED_RX_PIN);
 		uint8_t c = usart_recv(USART2);
 		/* Wrong, push to fifo, let usb task drain fifo into usb ep */
-		glue_data_received_cb(&c, 1);
+		//glue_data_received_cb(&c, 1);
+		if (ringb_put(&ring, c)) {
+			// good, 
+		} else {
+			// fuck it, let's go to blocking handler for now...
+			blocking_handler();
+			// Deassert CTS iff hardware flow control should be _before_ we've run out of space!
+			// um... should we be blocking or what?
+			// assert hardware flow control here?
+		}
 		gpio_clear(LED_RX_PORT, LED_RX_PIN);
 	}
 	if ((USART_CR1(USART2) & USART_CR1_TCIE) &&
@@ -91,11 +98,26 @@ int main(void)
 		RS485DE_PIN);
 
 	usart_setup();
+	ringb_init(&ring, ring_data, sizeof(ring_data));
 
 	usb_cdcacm_init(&usbd_dev);
 
 	while (1) {
-		;
+		uint8_t zero_copy_is_for_losers[sizeof(ring_data)];
+		usbd_poll(usbd_dev);
+		// if ringb.depth > 0, then grab all of it and queue for delivery....
+		int zci = 0;
+		while (ring.depth) {
+			int c = ringb_get(&ring);
+			if (c == -1) {
+				// should only happen if we have a second consumer?
+				blocking_handler();
+			}
+			zero_copy_is_for_losers[zci++] = c;
+		}
+		if (zci) {
+			glue_data_received_cb(zero_copy_is_for_losers, zci);
+		}
 	}
 
 }

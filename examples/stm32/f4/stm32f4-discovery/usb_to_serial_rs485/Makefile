@@ -17,6 +17,9 @@
 
 BINARY = main
 OBJS += usb_cdcacm.o usb_cdcacm-arch.o
+OBJS += ringb.o
+CFLAGS += -I../../../../shared
+VPATH += ../../../../shared
 
 LDSCRIPT = ../stm32f4-discovery.ld
 
