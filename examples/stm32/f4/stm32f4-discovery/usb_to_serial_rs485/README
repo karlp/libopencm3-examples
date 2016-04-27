@@ -2,7 +2,7 @@
 README
 ------------------------------------------------------------------------------
 
-This example implements a USB CDC-ACM device, connected to USART2 (PA2/3)
+This implements a USB CDC-ACM device, connected to USART2 (PA2-tx/PA3-rx)
 DMA is used to transfer from USB rx side to the USART tx,
 Interrupts are used from USART rx to fill the USB tx side.
 Baud rates from 600-115200 are tested, as well as even/odd/no parity

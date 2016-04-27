@@ -229,11 +229,6 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 	glue_send_data_cb(buf, len);
 }
 
-void cdcacm_send_data(uint8_t *buf, uint16_t len)
-{
-	usbd_ep_write_packet(acm_dev, 0x82, buf, len);
-}
-
 static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 {
 	(void) wValue;
