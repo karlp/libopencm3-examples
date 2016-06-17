@@ -17,7 +17,7 @@
 
 BINARY = main
 OBJS += usb_cdcacm.o usb_cdcacm-arch.o
-OBJS += ringb.o
+OBJS += ringb.o trace.o trace_stdio.o
 CFLAGS += -I../../../../shared
 VPATH += ../../../../shared
 

@@ -24,13 +24,26 @@
 
 #include "usb_cdcacm.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/cdc.h>
 #include <libopencm3/cm3/scb.h>
 
+#define ER_DEBUG
+#ifdef ER_DEBUG
+#define ER_DPRINTF(fmt, ...) \
+    do { printf(fmt, ## __VA_ARGS__); } while (0)
+#else
+#define ER_DPRINTF(fmt, ...) \
+    do { } while (0)
+#endif
+
+
 uint8_t usbd_control_buffer[128];
 usbd_device *acm_dev;
+
+bool out_in_progress;
 
 static const struct usb_device_descriptor dev = {
 	.bLength = USB_DT_DEVICE_SIZE,
@@ -197,6 +210,7 @@ static int cdcacm_control_request(usbd_device *usbd_dev,
 
 		dtr = (req->wValue & (1 << 0)) ? 1 : 0;
 		rts = (req->wValue & (1 << 1)) ? 1 : 0;
+		ER_DPRINTF("CTRLRQ: Set Line state: dtr:%d rts: %d\n", dtr, rts);
 
 		glue_set_line_state_cb(dtr, rts);
 
@@ -210,6 +224,8 @@ static int cdcacm_control_request(usbd_device *usbd_dev,
 			return 0;
 
 		coding = (struct usb_cdc_line_coding *) *buf;
+		ER_DPRINTF("CTRLRQ: line coding: %d(%d:%d:%d)\n", coding->dwDTERate,
+			coding->bDataBits, coding->bParityType, coding->bCharFormat);
 		return glue_set_line_coding_cb(coding->dwDTERate,
 			coding->bDataBits,
 			coding->bParityType,
@@ -226,6 +242,9 @@ static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 	(void) ep;
 
 	int len = usbd_ep_read_packet(usbd_dev, 0x01, buf, 64);
+	if (out_in_progress) {
+		ER_DPRINTF("BUSY out req %d\n", len);
+	}
 	glue_send_data_cb(buf, len);
 }
 
@@ -246,6 +265,7 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 		cdcacm_control_request);
 }
 
+/* FIXME - need to report this! */
 void cdcacm_line_state_changed_cb(uint8_t linemask)
 {
 	const int size = sizeof (struct usb_cdc_notification) + 2;
@@ -265,6 +285,7 @@ void cdcacm_line_state_changed_cb(uint8_t linemask)
 
 void glue_data_received_cb(uint8_t *buf, uint16_t len)
 {
+	ER_DPRINTF("glue rx %d\n", len);
 	usbd_ep_write_packet(acm_dev, 0x82, buf, len);
 }
 

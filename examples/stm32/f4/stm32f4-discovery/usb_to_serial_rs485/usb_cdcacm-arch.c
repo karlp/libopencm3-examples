@@ -26,6 +26,8 @@
 #include "usb_cdcacm.h"
 #include "syscfg.h"
 
+extern bool out_in_progress;
+
 void usb_cdcacm_setup_pre_arch(void)
 {
 	rcc_periph_clock_enable(RCC_GPIOA);
@@ -72,6 +74,7 @@ void dma1_stream6_isr(void)
 	if (dma_get_interrupt_flag(DMA1, DMA_STREAM6, DMA_TCIF)) {
 		USART_CR1(USART2) |= USART_CR1_TCIE;
 		dma_clear_interrupt_flags(DMA1, DMA_STREAM6, DMA_TCIF);
+		out_in_progress = false;
 	}
 }
 
@@ -79,6 +82,7 @@ void glue_send_data_cb(uint8_t *buf, uint16_t len)
 {
 	gpio_set(LED_TX_PORT, LED_TX_PIN);
 	gpio_set(RS485DE_PORT, RS485DE_PIN);
+	out_in_progress = true;
 	dma_write(buf, len);
 }
 

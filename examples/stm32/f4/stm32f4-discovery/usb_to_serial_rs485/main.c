@@ -22,9 +22,24 @@
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/usart.h>
 
+#include <stdio.h>
 #include "syscfg.h"
 #include "usb_cdcacm.h"
 #include "ringb.h"
+#include "trace.h"
+
+#define ER_DEBUG
+#ifdef ER_DEBUG
+#define ER_DPRINTF(fmt, ...) \
+    do { printf(fmt, ## __VA_ARGS__); } while (0)
+#else
+#define ER_DPRINTF(fmt, ...) \
+    do { } while (0)
+#endif
+
+
+#define STIMULUS_RING_DRAIN 2
+#define STIMULUS_RING_PUSH 3
 
 static usbd_device *usbd_dev;
 static struct ringb ring;
@@ -68,8 +83,12 @@ void usart2_isr(void)
 		/* Wrong, push to fifo, let usb task drain fifo into usb ep */
 		//glue_data_received_cb(&c, 1);
 		if (ringb_put(&ring, c)) {
-			// good, 
+			// good,
+			if (ring.depth > ring.buf_len / 2) {
+				trace_send8(STIMULUS_RING_PUSH, ring.depth);
+			}
 		} else {
+			ER_DPRINTF("rx buffer full\n");
 			// fuck it, let's go to blocking handler for now...
 			blocking_handler();
 			// Deassert CTS iff hardware flow control should be _before_ we've run out of space!
@@ -87,9 +106,29 @@ void usart2_isr(void)
 	}
 }
 
+void task_drain_rx(struct ringb *r) {
+	// if ringb.depth > 0, then grab all of it and queue for delivery....
+	uint8_t zero_copy_is_for_losers[sizeof(ring_data)];
+	int zci = 0;
+	while (r->depth) {
+		int c = ringb_get(r);
+		if (c == -1) {
+			// should only happen if we have a second consumer?
+			blocking_handler();
+		}
+		zero_copy_is_for_losers[zci++] = c;
+	}
+	if (zci) {
+		trace_send16(STIMULUS_RING_DRAIN, zci);
+		glue_data_received_cb(zero_copy_is_for_losers, zci);
+	}
+
+}
+
 int main(void)
 {
-	rcc_clock_setup_hse_3v3(&rcc_hse_8mhz_3v3[RCC_CLOCK_3V3_120MHZ]);
+	rcc_clock_setup_hse_3v3(&rcc_hse_8mhz_3v3[RCC_CLOCK_3V3_168MHZ]);
+	ER_DPRINTF("And we're alive!\n");
 	/* Leds and rs485 are on port D */
 	rcc_periph_clock_enable(RCC_GPIOD);
 	gpio_mode_setup(LED_RX_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
@@ -102,22 +141,15 @@ int main(void)
 
 	usb_cdcacm_init(&usbd_dev);
 
+	ER_DPRINTF("Looping...\n");
+	volatile int i = 0;
 	while (1) {
-		uint8_t zero_copy_is_for_losers[sizeof(ring_data)];
 		usbd_poll(usbd_dev);
-		// if ringb.depth > 0, then grab all of it and queue for delivery....
-		int zci = 0;
-		while (ring.depth) {
-			int c = ringb_get(&ring);
-			if (c == -1) {
-				// should only happen if we have a second consumer?
-				blocking_handler();
-			}
-			zero_copy_is_for_losers[zci++] = c;
+		if (i++ > 500) {
+			task_drain_rx(&ring);
+			i = 0;
 		}
-		if (zci) {
-			glue_data_received_cb(zero_copy_is_for_losers, zci);
-		}
+
 	}
 
 }
