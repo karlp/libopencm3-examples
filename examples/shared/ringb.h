@@ -24,7 +24,6 @@ extern "C" {
 struct ringb {
 	volatile int idx_r;
 	volatile int idx_w;
-	int depth;
 	uint8_t *buf;
 	int buf_len;
 };
