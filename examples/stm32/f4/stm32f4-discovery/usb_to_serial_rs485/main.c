@@ -38,12 +38,12 @@
 #endif
 
 
-#define STIMULUS_RING_DRAIN 2
-#define STIMULUS_RING_PUSH 3
-
 static usbd_device *usbd_dev;
-static struct ringb ring;
-static uint8_t ring_data[64];
+static struct ringb rx_ring;
+static uint8_t rx_ring_data[64];
+struct ringb tx_ring;
+static uint8_t tx_ring_data[128];
+volatile int outstanding_tx = 0;
 
 static void usart_setup(void)
 {
@@ -82,11 +82,8 @@ void usart2_isr(void)
 		uint8_t c = usart_recv(USART2);
 		/* Wrong, push to fifo, let usb task drain fifo into usb ep */
 		//glue_data_received_cb(&c, 1);
-		if (ringb_put(&ring, c)) {
+		if (ringb_put(&rx_ring, c)) {
 			// good,
-			if (ring.depth > ring.buf_len / 2) {
-				trace_send8(STIMULUS_RING_PUSH, ring.depth);
-			}
 		} else {
 			ER_DPRINTF("rx buffer full\n");
 			// fuck it, let's go to blocking handler for now...
@@ -97,26 +94,39 @@ void usart2_isr(void)
 		}
 		gpio_clear(LED_RX_PORT, LED_RX_PIN);
 	}
-	if ((USART_CR1(USART2) & USART_CR1_TCIE) &&
-		(USART_SR(USART2) & USART_SR_TC)) {
-		USART_CR1(USART2) &= ~USART_CR1_TCIE;
-		USART_SR(USART2) &= ~USART_SR_TC;
-		gpio_clear(RS485DE_PORT, RS485DE_PIN);
-		gpio_clear(LED_TX_PORT, LED_TX_PIN);
+	if (usart_get_interrupt_source(USART2, USART_SR_TXE)) {
+		int c = ringb_get(&tx_ring);
+		if (c >= 0) {
+			outstanding_tx--;
+			trace_send_blocking8(STIMULUS_TX, c);
+			trace_send_blocking8(STIMULUS_TXC, outstanding_tx);
+			usart_send(USART2, c);
+		} else {
+			// turn off tx empty interrupts, nothing left to send
+			usart_disable_tx_interrupt(USART2);
+			ER_DPRINTF("OFF\n");
+			// Turn on tx complete interrupts, for rs485 de
+//			USART_CR1(USART2) |= ~USART_CR1_TCIE;
+		}
 	}
+//	if (usart_get_interrupt_source(USART2, USART_SR_TC)) {
+//		ER_DPRINTF("TC");
+//		// turn off the complete irqs, we're done now.
+//		USART_SR(USART2) &= ~USART_SR_TC;
+//		USART_CR1(USART2) &= ~USART_CR1_TCIE;
+//		gpio_clear(LED_TX_PORT, LED_TX_PIN);
+//		gpio_clear(RS485DE_PORT, RS485DE_PIN);
+//	}
 }
 
+/* Y0, moron, nothing's stopping rx irqs from happening, have fun when you overflow temp buffer! */
 void task_drain_rx(struct ringb *r) {
-	// if ringb.depth > 0, then grab all of it and queue for delivery....
-	uint8_t zero_copy_is_for_losers[sizeof(ring_data)];
+	uint8_t zero_copy_is_for_losers[sizeof(rx_ring_data)];
 	int zci = 0;
-	while (r->depth) {
-		int c = ringb_get(r);
-		if (c == -1) {
-			// should only happen if we have a second consumer?
-			blocking_handler();
-		}
+	int c = ringb_get(r);
+	while (c >= 0) {
 		zero_copy_is_for_losers[zci++] = c;
+		c = ringb_get(r);
 	}
 	if (zci) {
 		trace_send16(STIMULUS_RING_DRAIN, zci);
@@ -137,7 +147,8 @@ int main(void)
 		RS485DE_PIN);
 
 	usart_setup();
-	ringb_init(&ring, ring_data, sizeof(ring_data));
+	ringb_init(&rx_ring, rx_ring_data, sizeof(rx_ring_data));
+	ringb_init(&tx_ring, tx_ring_data, sizeof(tx_ring_data));
 
 	usb_cdcacm_init(&usbd_dev);
 
@@ -146,8 +157,13 @@ int main(void)
 	while (1) {
 		usbd_poll(usbd_dev);
 		if (i++ > 500) {
-			task_drain_rx(&ring);
+			task_drain_rx(&rx_ring);
 			i = 0;
+			// hacktastic
+			if (outstanding_tx <= 64) {
+				usbd_ep_nak_set(usbd_dev, 1, 0);
+			}
+
 		}
 
 	}

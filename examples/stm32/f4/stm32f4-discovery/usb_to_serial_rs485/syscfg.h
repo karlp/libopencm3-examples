@@ -36,6 +36,12 @@ extern "C" {
 
 #define STREAM_USART2_TX 6
 
+#define STIMULUS_RING_DRAIN 2
+#define STIMULUS_RING_PUSH 3
+#define STIMULUS_TXC 4
+#define STIMULUS_TX 5
+
+
 #ifdef	__cplusplus
 }
 #endif

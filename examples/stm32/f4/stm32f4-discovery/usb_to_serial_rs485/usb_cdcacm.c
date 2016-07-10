@@ -224,7 +224,7 @@ static int cdcacm_control_request(usbd_device *usbd_dev,
 			return 0;
 
 		coding = (struct usb_cdc_line_coding *) *buf;
-		ER_DPRINTF("CTRLRQ: line coding: %d(%d:%d:%d)\n", coding->dwDTERate,
+		ER_DPRINTF("CTRLRQ: line coding: %lu(%u:%u:%u)\n", coding->dwDTERate,
 			coding->bDataBits, coding->bParityType, coding->bCharFormat);
 		return glue_set_line_coding_cb(coding->dwDTERate,
 			coding->bDataBits,
@@ -235,17 +235,21 @@ static int cdcacm_control_request(usbd_device *usbd_dev,
 	return 0;
 }
 
+extern int outstanding_tx;
 static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	uint8_t buf[64];
-
-	(void) ep;
-
-	int len = usbd_ep_read_packet(usbd_dev, 0x01, buf, 64);
-	if (out_in_progress) {
-		ER_DPRINTF("BUSY out req %d\n", len);
-	}
+	/* nak right now, we're not sure whether we'll be able to even process this!*/
+	usbd_ep_nak_set(usbd_dev, ep, 1);
+	int len = usbd_ep_read_packet(usbd_dev, ep, buf, 64);
+	ER_DPRINTF("Hrx%db\n", len);
+	// push all of what we got into our outbound fifo
 	glue_send_data_cb(buf, len);
+	// how do I only stop nakking when I have enough fifo space left?
+	if (outstanding_tx <= 64) {
+		ER_DPRINTF("ACK\n");
+		usbd_ep_nak_set(usbd_dev, ep, 0);
+	}
 }
 
 static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
@@ -285,7 +289,7 @@ void cdcacm_line_state_changed_cb(uint8_t linemask)
 
 void glue_data_received_cb(uint8_t *buf, uint16_t len)
 {
-	ER_DPRINTF("glue rx %d\n", len);
+	ER_DPRINTF("Drx %db\n", len);
 	usbd_ep_write_packet(acm_dev, 0x82, buf, len);
 }
 

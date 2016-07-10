@@ -25,6 +25,7 @@
 
 #include "usb_cdcacm.h"
 #include "syscfg.h"
+#include "ringb.h"
 
 extern bool out_in_progress;
 
@@ -32,7 +33,6 @@ void usb_cdcacm_setup_pre_arch(void)
 {
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_OTGFS);
-	rcc_periph_clock_enable(RCC_DMA1);
 
 	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE,
 		GPIO9 | GPIO11 | GPIO12);
@@ -42,48 +42,27 @@ void usb_cdcacm_setup_pre_arch(void)
 
 void usb_cdcacm_setup_post_arch(void)
 {
-	/* Better enable interrupts */
-//	nvic_enable_irq(NVIC_OTG_FS_IRQ);
-	nvic_enable_irq(NVIC_DMA1_STREAM6_IRQ);
 }
 
-static void dma_write(uint8_t *data, int size)
-{
-	/* Reset DMA channel*/
-	dma_stream_reset(DMA1, STREAM_USART2_TX);
-
-	dma_set_peripheral_address(DMA1,
-		STREAM_USART2_TX, (uint32_t) &USART2_DR);
-	dma_set_memory_address(DMA1, STREAM_USART2_TX, (uint32_t) data);
-	dma_set_number_of_data(DMA1, STREAM_USART2_TX, size);
-	dma_set_transfer_mode(DMA1,
-		STREAM_USART2_TX, DMA_SxCR_DIR_MEM_TO_PERIPHERAL);
-	dma_enable_memory_increment_mode(DMA1, STREAM_USART2_TX);
-	dma_set_peripheral_size(DMA1, STREAM_USART2_TX, DMA_SxCR_PSIZE_8BIT);
-	dma_set_memory_size(DMA1, STREAM_USART2_TX, DMA_SxCR_MSIZE_8BIT);
-	dma_set_priority(DMA1, STREAM_USART2_TX, DMA_SxCR_PL_HIGH);
-	dma_enable_transfer_complete_interrupt(DMA1, STREAM_USART2_TX);
-	dma_channel_select(DMA1, STREAM_USART2_TX, DMA_SxCR_CHSEL_4);
-	dma_enable_stream(DMA1, STREAM_USART2_TX);
-
-	usart_enable_tx_dma(USART2);
-}
-
-void dma1_stream6_isr(void)
-{
-	if (dma_get_interrupt_flag(DMA1, DMA_STREAM6, DMA_TCIF)) {
-		USART_CR1(USART2) |= USART_CR1_TCIE;
-		dma_clear_interrupt_flags(DMA1, DMA_STREAM6, DMA_TCIF);
-		out_in_progress = false;
-	}
-}
-
+// hacktastic
+extern struct ringb tx_ring;
+extern volatile int outstanding_tx;
 void glue_send_data_cb(uint8_t *buf, uint16_t len)
 {
+	if (len == 0) {
+		return;
+	}
 	gpio_set(LED_TX_PORT, LED_TX_PIN);
 	gpio_set(RS485DE_PORT, RS485DE_PIN);
-	out_in_progress = true;
-	dma_write(buf, len);
+	for (int x = 0; x < len; x++) {
+		if (!ringb_put(&tx_ring, buf[x])) {
+			// oh shit. tx ring must be big enough for, what, 2 usb packets?
+			blocking_handler();
+		}
+		outstanding_tx++;
+		trace_send_blocking8(STIMULUS_TXC, outstanding_tx);
+	}
+	usart_enable_tx_interrupt(USART2);
 }
 
 void glue_set_line_state_cb(uint8_t dtr, uint8_t rts)
