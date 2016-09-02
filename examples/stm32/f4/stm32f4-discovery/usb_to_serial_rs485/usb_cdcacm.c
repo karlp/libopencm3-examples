@@ -310,6 +310,8 @@ void usb_cdcacm_init(usbd_device **usbd_dev)
 // hacktastic
 extern struct ringb tx_ring;
 
+// FIXME - dehack,  move the rings in here too, and make the arch file have the irq
+// and have _this_ file have a ".irq" style handler that does the right things.
 void usb_cdcacm_poll(void) {
 	// Only handle turn nak off, the out call back will handle turning nak on
 	if (tx_ring.buf_len - ringb_depth(&tx_ring) >= 64) {
