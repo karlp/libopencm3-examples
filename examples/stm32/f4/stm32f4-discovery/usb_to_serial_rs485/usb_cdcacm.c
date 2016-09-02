@@ -29,6 +29,7 @@
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/cdc.h>
 #include <libopencm3/cm3/scb.h>
+#include "ringb.h"
 
 #define ER_DEBUG
 #ifdef ER_DEBUG
@@ -42,8 +43,6 @@
 
 uint8_t usbd_control_buffer[128];
 usbd_device *acm_dev;
-
-bool out_in_progress;
 
 static const struct usb_device_descriptor dev = {
 	.bLength = USB_DT_DEVICE_SIZE,
@@ -235,19 +234,22 @@ static int cdcacm_control_request(usbd_device *usbd_dev,
 	return 0;
 }
 
-extern int outstanding_tx;
-static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
+static void cdcacm_data_out_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	uint8_t buf[64];
-	/* nak right now, we're not sure whether we'll be able to even process this!*/
-	usbd_ep_nak_set(usbd_dev, ep, 1);
 	int len = usbd_ep_read_packet(usbd_dev, ep, buf, 64);
 	ER_DPRINTF("Hrx%db\n", len);
+	if (len == 0) {
+		ER_DPRINTF("shouldn't be legal");
+		blocking_handler();
+	}
 	// push all of what we got into our outbound fifo
-	glue_send_data_cb(buf, len);
-	// how do I only stop nakking when I have enough fifo space left?
-	if (outstanding_tx <= 64) {
-		ER_DPRINTF("ACK\n");
+	bool needsnak = glue_send_data_cb(buf, len);
+	if (needsnak) {
+		ER_DPRINTF("NACK\n");
+		usbd_ep_nak_set(usbd_dev, ep, 1);
+	} else {
+		ER_DPRINTF("ack\n");
 		usbd_ep_nak_set(usbd_dev, ep, 0);
 	}
 }
@@ -257,7 +259,7 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 	(void) wValue;
 
 	usbd_ep_setup(usbd_dev, 0x01, USB_ENDPOINT_ATTR_BULK, 64,
-		cdcacm_data_rx_cb);
+		cdcacm_data_out_cb);
 	usbd_ep_setup(usbd_dev, 0x82, USB_ENDPOINT_ATTR_BULK, 64, NULL);
 	usbd_ep_setup(usbd_dev, 0x83, USB_ENDPOINT_ATTR_INTERRUPT, 16, NULL);
 
@@ -287,7 +289,7 @@ void cdcacm_line_state_changed_cb(uint8_t linemask)
 	while (usbd_ep_write_packet(acm_dev, 0x83, buf, size) == size);
 }
 
-void glue_data_received_cb(uint8_t *buf, uint16_t len)
+void cdcacm_send_data(uint8_t *buf, uint16_t len)
 {
 	ER_DPRINTF("Drx %db\n", len);
 	usbd_ep_write_packet(acm_dev, 0x82, buf, len);
@@ -303,4 +305,16 @@ void usb_cdcacm_init(usbd_device **usbd_dev)
 	usbd_register_set_config_callback(acm_dev, cdcacm_set_config);
 
 	usb_cdcacm_setup_post_arch();
+}
+
+// hacktastic
+extern struct ringb tx_ring;
+
+void usb_cdcacm_poll(void) {
+	// Only handle turn nak off, the out call back will handle turning nak on
+	if (tx_ring.buf_len - ringb_depth(&tx_ring) >= 64) {
+		usbd_ep_nak_set(acm_dev, 1, 0);
+	}
+
+	// check state of lines here and issue the notifications on change
 }

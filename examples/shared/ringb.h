@@ -51,12 +51,16 @@ bool ringb_put(struct ringb *ring, uint8_t c);
 int ringb_get(struct ringb *ring);
 
 /**
- * Toss data and reset to empty
+ * Is the ring empty?
+ * shorter than depth()
  * @param ring
+ * @return true if the ring is empty.
  */
-void ringb_flush(struct ringb *ring);
+static inline bool ringb_empty(struct ringb *ring) {
+	return (ring->idx_r == ring->idx_w);
+}
 
-
+int ringb_depth(struct ringb *ring);
 #ifdef	__cplusplus
 }
 #endif

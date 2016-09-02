@@ -43,7 +43,6 @@ static struct ringb rx_ring;
 static uint8_t rx_ring_data[64];
 struct ringb tx_ring;
 static uint8_t tx_ring_data[128];
-volatile int outstanding_tx = 0;
 
 static void usart_setup(void)
 {
@@ -80,8 +79,6 @@ void usart2_isr(void)
 		(USART_SR(USART2) & USART_SR_RXNE)) {
 		gpio_set(LED_RX_PORT, LED_RX_PIN);
 		uint8_t c = usart_recv(USART2);
-		/* Wrong, push to fifo, let usb task drain fifo into usb ep */
-		//glue_data_received_cb(&c, 1);
 		if (ringb_put(&rx_ring, c)) {
 			// good,
 		} else {
@@ -97,9 +94,7 @@ void usart2_isr(void)
 	if (usart_get_interrupt_source(USART2, USART_SR_TXE)) {
 		int c = ringb_get(&tx_ring);
 		if (c >= 0) {
-			outstanding_tx--;
 			trace_send_blocking8(STIMULUS_TX, c);
-			trace_send_blocking8(STIMULUS_TXC, outstanding_tx);
 			usart_send(USART2, c);
 		} else {
 			// turn off tx empty interrupts, nothing left to send
@@ -119,7 +114,6 @@ void usart2_isr(void)
 //	}
 }
 
-/* Y0, moron, nothing's stopping rx irqs from happening, have fun when you overflow temp buffer! */
 void task_drain_rx(struct ringb *r) {
 	uint8_t zero_copy_is_for_losers[sizeof(rx_ring_data)];
 	int zci = 0;
@@ -128,11 +122,14 @@ void task_drain_rx(struct ringb *r) {
 		zero_copy_is_for_losers[zci++] = c;
 		c = ringb_get(r);
 	}
+	if (zci > sizeof(zero_copy_is_for_losers)) {
+		// hehe, rx irqs continued, and you drained more than the initial ring size. cute.
+		blocking_handler();
+	}
 	if (zci) {
 		trace_send16(STIMULUS_RING_DRAIN, zci);
-		glue_data_received_cb(zero_copy_is_for_losers, zci);
+		cdcacm_send_data(zero_copy_is_for_losers, zci);
 	}
-
 }
 
 int main(void)
@@ -156,16 +153,11 @@ int main(void)
 	volatile int i = 0;
 	while (1) {
 		usbd_poll(usbd_dev);
+		usb_cdcacm_poll();
 		if (i++ > 500) {
 			task_drain_rx(&rx_ring);
 			i = 0;
-			// hacktastic
-			if (outstanding_tx <= 64) {
-				usbd_ep_nak_set(usbd_dev, 1, 0);
-			}
-
 		}
-
 	}
 
 }

@@ -38,15 +38,15 @@ extern "C" {
 	void cdcacm_send_data(uint8_t *buf, uint16_t len);
 	void cdcacm_line_state_changed_cb(uint8_t linemask);
 
-	/* Call this if you have data to send to the usb host */
-	void glue_data_received_cb(uint8_t *buf, uint16_t len);
 	/* These will be called by usb_cdcacm code */
-	void glue_send_data_cb(uint8_t *buf, uint16_t len);
+	bool glue_send_data_cb(uint8_t *buf, uint16_t len);
 
 	void glue_set_line_state_cb(uint8_t dtr, uint8_t rts);
 	int glue_set_line_coding_cb(uint32_t baud, uint8_t databits,
 		enum usb_cdc_line_coding_bParityType cdc_parity,
 		enum usb_cdc_line_coding_bCharFormat cdc_stopbits);
+
+	void usb_cdcacm_poll(void);
 
 #ifdef	__cplusplus
 }

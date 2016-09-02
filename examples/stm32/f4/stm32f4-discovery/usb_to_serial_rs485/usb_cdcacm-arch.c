@@ -46,12 +46,8 @@ void usb_cdcacm_setup_post_arch(void)
 
 // hacktastic
 extern struct ringb tx_ring;
-extern volatile int outstanding_tx;
-void glue_send_data_cb(uint8_t *buf, uint16_t len)
+bool glue_send_data_cb(uint8_t *buf, uint16_t len)
 {
-	if (len == 0) {
-		return;
-	}
 	gpio_set(LED_TX_PORT, LED_TX_PIN);
 	gpio_set(RS485DE_PORT, RS485DE_PIN);
 	for (int x = 0; x < len; x++) {
@@ -59,10 +55,10 @@ void glue_send_data_cb(uint8_t *buf, uint16_t len)
 			// oh shit. tx ring must be big enough for, what, 2 usb packets?
 			blocking_handler();
 		}
-		outstanding_tx++;
-		trace_send_blocking8(STIMULUS_TXC, outstanding_tx);
 	}
 	usart_enable_tx_interrupt(USART2);
+	// If we're over 64, we can't take another full packet.
+	return (ringb_depth(&tx_ring) > 64);
 }
 
 void glue_set_line_state_cb(uint8_t dtr, uint8_t rts)

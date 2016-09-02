@@ -20,16 +20,14 @@ bool ringb_put(struct ringb *ring, uint8_t c) {
 }
 
 int ringb_get(struct ringb *ring) {
-	int rval;
-	if (ring->idx_r != ring->idx_w) {
-		rval = ring->buf[ring->idx_r];
-		ring->idx_r = (ring->idx_r + 1) % ring->buf_len;
-		return rval;
+	if (ringb_empty(ring)) {
+		return -1;
 	}
-	return -1;
+	uint8_t rval = ring->buf[ring->idx_r];
+	ring->idx_r = (ring->idx_r + 1) % ring->buf_len;
+	return rval;
 }
 
-void ringb_flush(struct ringb *ring) {
-	ring->idx_r = 0;
-	ring->idx_w = 0;
+int ringb_depth(struct ringb *ring) {
+	return ((unsigned int)(ring->buf_len + ring->idx_w - ring->idx_r) % ring->buf_len);
 }
