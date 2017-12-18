@@ -43,6 +43,9 @@ STYLECHECK	:= /checkpatch.pl
 STYLECHECKFLAGS	:= --no-tree -f --terse --mailback
 STYLECHECKFILES	:= $(shell find . -name '*.[ch]')
 OPT		:= -Os
+ifeq ($(LTO),1)
+OPT		+= -flto
+endif
 DEBUG		:= -ggdb3
 CSTD		?= -std=c99
 
@@ -195,7 +198,7 @@ print-%:
 
 %.elf %.map: $(OBJS) $(LDSCRIPT)
 	@#printf "  LD      $(*).elf\n"
-	$(Q)$(LD) $(TGT_LDFLAGS) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $(*).elf
+	$(Q)$(LD) $(OPT) $(TGT_LDFLAGS) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $(*).elf
 
 %.o: %.c
 	@#printf "  CC      $(*).c\n"
