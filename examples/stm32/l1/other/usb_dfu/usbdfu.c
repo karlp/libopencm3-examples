@@ -29,12 +29,29 @@
 
 #define APP_ADDRESS	0x08002000
 
+/* explicit actions requested */
+#define BF_BOOT_USER 0xb0079001
+#define BF_BOOT_BL 0x55aab007
+static volatile uint32_t boot_flag __attribute__((section(".noinit")));
+
 /* Commands sent with wBlockNum == 0 as per ST implementation. */
 #define CMD_SETADDR	0x21
 #define CMD_ERASE	0x41
 
 /* We need a special large control buffer for this device: */
 uint8_t usbd_control_buffer[1024];
+
+
+#include <libopencm3/cm3/itm.h>
+static void trace_send_blocking8(int stimulus_port, char c) {
+	if (!(ITM_TER[0] & (1<<stimulus_port))) {
+		return;
+	}
+	while (!(ITM_STIM8(stimulus_port) & ITM_STIM_FIFOREADY))
+		;
+	ITM_STIM8(stimulus_port) = c;
+}
+
 
 static enum dfu_state usbdfu_state = STATE_DFU_IDLE;
 
@@ -68,7 +85,10 @@ const struct usb_dfu_descriptor dfu_function = {
 	.bmAttributes = USB_DFU_CAN_UPLOAD | USB_DFU_CAN_DOWNLOAD | USB_DFU_WILL_DETACH,
 	.wDetachTimeout = 255,
 	.wTransferSize = 128, /* half page on L1 only please */
+	/* this means you must use dfuse! */
 	.bcdDFUVersion = 0x011A,
+	/* this means normal dfu files */
+	//.bcdDFUVersion = 0x0100,
 };
 
 const struct usb_interface_descriptor iface = {
@@ -117,13 +137,16 @@ static const char *usb_strings[] = {
 
 static uint8_t usbdfu_getstatus(uint32_t *bwPollTimeout)
 {
+	trace_send_blocking8(28, usbdfu_state);
 	switch (usbdfu_state) {
 	case STATE_DFU_DNLOAD_SYNC:
+		trace_send_blocking8(29, 41);
 		usbdfu_state = STATE_DFU_DNBUSY;
 		/* we do half page writes at a time, so 5ms is more than enough to ask them to wait */
 		*bwPollTimeout = 5;
 		return DFU_STATUS_OK;
 	case STATE_DFU_MANIFEST_SYNC:
+		trace_send_blocking8(29, 42);
 		/* Device will reset when read is complete. */
 		usbdfu_state = STATE_DFU_MANIFEST;
 		return DFU_STATUS_OK;
@@ -137,6 +160,7 @@ static void usbdfu_getstatus_complete(usbd_device *usbd_dev, struct usb_setup_da
 	(void)req;
 	(void)usbd_dev;
 
+	trace_send_blocking8(27, usbdfu_state);
 	switch (usbdfu_state) {
 	case STATE_DFU_DNBUSY:
 		flash_unlock();
@@ -176,9 +200,14 @@ static void usbdfu_getstatus_complete(usbd_device *usbd_dev, struct usb_setup_da
 		return;
 	case STATE_DFU_MANIFEST:
 		/* USB device must detach, we just reset... */
+		trace_send_blocking8(29, 43);
+		for (int i = 0; i < 10000; i++) {
+			__asm__("nop");
+		}
 		scb_reset_system();
 		return; /* Will never return. */
 	default:
+		trace_send_blocking8(29, 46);
 		return;
 	}
 }
@@ -194,6 +223,7 @@ static enum usbd_request_return_codes usbdfu_control_request(usbd_device *usbd_d
 	switch (req->bRequest) {
 	case DFU_DNLOAD:
 		if ((len == NULL) || (*len == 0)) {
+			trace_send_blocking8(29, 47);
 			usbdfu_state = STATE_DFU_MANIFEST_SYNC;
 		} else {
 			/* Copy download data for use on GET_STATUS. */
@@ -209,6 +239,7 @@ static enum usbd_request_return_codes usbdfu_control_request(usbd_device *usbd_d
 			usbdfu_state = STATE_DFU_IDLE;
 		return USBD_REQ_HANDLED;
 	case DFU_ABORT:
+		trace_send_blocking8(29, 10);
 		/* Abort returns to dfuIDLE state. */
 		usbdfu_state = STATE_DFU_IDLE;
 		return USBD_REQ_HANDLED;
@@ -220,6 +251,7 @@ static enum usbd_request_return_codes usbdfu_control_request(usbd_device *usbd_d
 		return USBD_REQ_HANDLED;
 	case DFU_GETSTATUS: {
 		uint32_t bwPollTimeout = 0; /* 24-bit integer in DFU class spec */
+		//trace_send_blocking8(29, 40);
 		(*buf)[0] = usbdfu_getstatus(&bwPollTimeout);
 		(*buf)[1] = bwPollTimeout & 0xFF;
 		(*buf)[2] = (bwPollTimeout >> 8) & 0xFF;
@@ -232,9 +264,18 @@ static enum usbd_request_return_codes usbdfu_control_request(usbd_device *usbd_d
 		}
 	case DFU_GETSTATE:
 		/* Return state with no state transision. */
+		trace_send_blocking8(29, 50);
 		*buf[0] = usbdfu_state;
 		*len = 1;
 		return USBD_REQ_HANDLED;
+	case DFU_DETACH:
+		/* we're being asked to reboot into user code */
+		boot_flag = BF_BOOT_USER;
+		scb_reset_system();
+		return USBD_REQ_HANDLED;
+	default:
+		trace_send_blocking8(29, 60);
+		trace_send_blocking8(26, req->bRequest);
 	}
 
 	return USBD_REQ_NOTSUPP;
@@ -253,10 +294,39 @@ static void usbdfu_set_config(usbd_device *usbd_dev, uint16_t wValue)
 
 int main(void)
 {
+	/* If requested, boot _immediately_ to user code.
+	 * we do this immediately to ensure user code has the cleanest
+	 * possible environment
+	 */
+	trace_send_blocking8(29, 1);
+	if (boot_flag == BF_BOOT_USER) {
+		trace_send_blocking8(29, 2);
+		boot_flag = 0;
+		/* Boot the application if it's valid. */
+		if ((*(volatile uint32_t *)APP_ADDRESS & 0x2FFE0000) == 0x20000000) {
+			trace_send_blocking8(29, 3);
+			/* Set vector table base address. */
+			SCB_VTOR = APP_ADDRESS & 0xFFFF;
+			/* Initialise master stack pointer. */
+			__asm__ volatile("msr msp, %0"::"g"
+				     (*(volatile uint32_t *)APP_ADDRESS));
+			/* Jump to application. */
+			(*(void (**)())(APP_ADDRESS + 4))();
+		}
+	}
+
+	/*
+	 * ok, start the bootloader instead, but if we reset again, attempt
+	 * to start user code on next boot again
+	 */
+	boot_flag = BF_BOOT_USER;
+
 	usbd_device *usbd_dev;
+	/* turn off the usb pull up right now, helps us re-enumerate */
+        SYSCFG_PMC &= ~SYSCFG_PMC_USB_PU;
 
 	/* any L1 with a 16MHz crystal */
-	const struct rcc_clock_scale myclock_locm3_hw1 = {
+	const struct rcc_clock_scale myclock_16mhz_hse = {
 		.pll_source = RCC_CFGR_PLLSRC_HSE_CLK,
 		.pll_mul = RCC_CFGR_PLLMUL_MUL6,
 		.pll_div = RCC_CFGR_PLLDIV_DIV3,
@@ -269,47 +339,22 @@ int main(void)
 		.apb1_frequency = 32e6,
 		.apb2_frequency = 32e6,
 	};
-	rcc_clock_setup_pll(&myclock_locm3_hw1);
+	rcc_clock_setup_pll(&myclock_16mhz_hse);
 
+	trace_send_blocking8(29, 4);
 	/* Enable built in USB pullup on L1 */
         rcc_periph_clock_enable(RCC_SYSCFG);
         SYSCFG_PMC |= SYSCFG_PMC_USB_PU;
 
-
-//// end of board specific shtis
-
-	rcc_periph_clock_enable(RCC_GPIOA);
-
-//	if (!gpio_get(GPIOA, GPIO10)) {
-		/* Boot the application if it's valid. */
-		if ((*(volatile uint32_t *)APP_ADDRESS & 0x2FFE0000) == 0x20000000) {
-			/* Set vector table base address. */
-			SCB_VTOR = APP_ADDRESS & 0xFFFF;
-			/* Initialise master stack pointer. */
-			__asm__ volatile("msr msp, %0"::"g"
-				     (*(volatile uint32_t *)APP_ADDRESS));
-			/* Jump to application. */
-			(*(void (**)())(APP_ADDRESS + 4))();
-		}
-//	}
-
-	//rcc_clock_setup_in_hsi_out_48mhz();
-
-	rcc_periph_clock_enable(RCC_GPIOA);
-	//rcc_periph_clock_enable(RCC_AFIO);
-
-	//AFIO_MAPR |= AFIO_MAPR_SWJ_CFG_JTAG_OFF_SW_ON;
-//	gpio_set_mode(GPIOA, GPIO_MODE_INPUT, 0, GPIO15);
-
-	//rcc_periph_clock_enable(RCC_OTGFS);
+	/*
+	 * TODO: optionally, configure and read GPIOs here for button control.
+	 * set boot_flag and scb_reset_system() as desired.
+	 */
 
 	usbd_dev = usbd_init(&st_usbfs_v1_usb_driver, &dev, &config, usb_strings, 4, usbd_control_buffer, sizeof(usbd_control_buffer));
 	usbd_register_set_config_callback(usbd_dev, usbdfu_set_config);
 
-	//gpio_set(GPIOA, GPIO15);
-	//gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ,
-		      //GPIO_CNF_OUTPUT_PUSHPULL, GPIO15);
-
+	trace_send_blocking8(29, 5);
 	while (1)
 		usbd_poll(usbd_dev);
 }
