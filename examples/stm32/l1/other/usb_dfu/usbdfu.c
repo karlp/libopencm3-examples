@@ -112,7 +112,7 @@ static const char *usb_strings[] = {
 	"DFU Demo",
 	"DEMO",
 	/* This string is used by ST Microelectronics' DfuSe utility. */
-	"@Internal Flash   /0x08000000/8*001Ka,56*001Kg",
+	"@Internal Flash   /0x08000000/32*256Ba,224*256Bg",
 };
 
 static uint8_t usbdfu_getstatus(uint32_t *bwPollTimeout)
@@ -161,9 +161,11 @@ static void usbdfu_getstatus_complete(usbd_device *usbd_dev, struct usb_setup_da
 				       dfu_function.wTransferSize);
 		        cm_disable_interrupts();
 			/* this is to autoerase as we go, regardless of ST DfuSe extensions (CMD_ERASE) */
+#if 0
 			if ((baseaddr & (256 - 1)) == 0) {
 				flash_erase_page(baseaddr);
 			}
+#endif
 			flash_program_half_page((uint32_t *)baseaddr, prog.buf);
 			cm_enable_interrupts();
 		}
